@@ -1,5 +1,6 @@
 package io.github.devhyper.openvideoeditor.videoeditor
 
+import androidx.compose.ui.graphics.SolidColor
 import android.app.Activity
 import android.content.Intent
 import android.media.MediaScannerConnection
@@ -17,6 +18,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,10 +34,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBarsIgnoringVisibility
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -44,8 +47,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Filter
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Layers
@@ -54,7 +61,10 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Replay5
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Texture
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,7 +96,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -95,12 +105,14 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Player.COMMAND_GET_CURRENT_MEDIA_ITEM
 import androidx.media3.common.Player.Commands
@@ -128,11 +140,12 @@ import io.github.devhyper.openvideoeditor.misc.validateUInt
 import io.github.devhyper.openvideoeditor.settings.SettingsActivity
 import io.github.devhyper.openvideoeditor.settings.SettingsDataStore
 import io.github.devhyper.openvideoeditor.ui.theme.OpenVideoEditorTheme
+import io.github.devhyper.openvideoeditor.videoeditor.model.VideoClip
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun VideoEditorScreen(
     uri: String,
@@ -145,8 +158,6 @@ fun VideoEditorScreen(
     val context = LocalContext.current
 
     val dataStore = SettingsDataStore(context)
-
-    val controlsVisible by viewModel.controlsVisible.collectAsState()
 
     val player = remember {
         ExoPlayer.Builder(context)
@@ -170,10 +181,6 @@ fun VideoEditorScreen(
         }
     }
 
-    var listenerRepeating by remember { mutableStateOf(false) }
-
-    var isPlaying by remember { mutableStateOf(player.isPlaying) }
-
     var fpm by remember { mutableFloatStateOf(0F) }
 
     var totalDuration by remember { mutableLongStateOf(0L) }
@@ -182,120 +189,86 @@ fun VideoEditorScreen(
 
     var currentTimeFrames by remember { mutableLongStateOf(0L) }
 
-    var playbackState by remember { mutableIntStateOf(player.playbackState) }
-
-    var playerViewSet by remember { mutableStateOf(false) }
-
-    val currentEditingEffect by viewModel.currentEditingEffect.collectAsState()
-
-    val useUiCascadingEffect by dataStore.getUiCascadingEffectAsync()
-        .collectAsState(dataStore.getUiCascadingEffectBlocking())
-
     val filterDurationEditorEnabled by viewModel.filterDurationEditorEnabled.collectAsState()
 
-    val filterDurationEditorSliderPosition by viewModel.filterDurationEditorSliderPosition.collectAsState()
+    var textureView: TextureView? by remember { mutableStateOf(null) }
 
-    val startFilterSelected by viewModel.startFilterSelected.collectAsState()
+    DisposableEffect(key1 = Unit) {
+        val listenerHandler = Handler(getMainLooper())
+        val updateRunnable = object : Runnable {
+            override fun run() {
+                currentTime =
+                    player.currentPosition.coerceAtLeast(0L)
+                currentTimeFrames =
+                    ((currentTime * fpm).toLong()).coerceAtMost(
+                        totalDurationFrames
+                    )
+                listenerHandler.postDelayed(
+                    this,
+                    REFRESH_RATE
+                )
+            }
+        }
+        val listener =
+            object : Player.Listener {
 
-    var textureView: TextureView? = null
+                override fun onEvents(
+                    regularPlayer: Player,
+                    events: Player.Events
+                ) {
+                    super.onEvents(player, events)
+
+                    if (player.duration > 0L) {
+                        totalDuration = player.duration
+                        fpm = (player.videoFormat?.frameRate ?: 0F) / 1000F
+                        if (fpm > 0F) {
+                            totalDurationFrames = (totalDuration * fpm).toLong()
+                        }
+                    }
+
+                    if (regularPlayer.isPlaying) {
+                        if (!listenerHandler.hasCallbacks(updateRunnable)) {
+                            listenerHandler.post(updateRunnable)
+                        }
+                    } else {
+                        listenerHandler.removeCallbacksAndMessages(null)
+                        currentTime =
+                            player.currentPosition.coerceAtLeast(0L)
+                        currentTimeFrames =
+                            ((currentTime * fpm).toLong()).coerceAtMost(
+                                totalDurationFrames
+                            )
+                    }
+                }
+            }
+
+        player.addListener(listener)
+
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
+    }
 
     OpenVideoEditorTheme(forceDarkTheme = true, forceBlackStatusBar = true) {
         Surface(
-            modifier = Modifier
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            Box {
-                DisposableEffect(key1 = Unit) {
-                    val listenerHandler = Handler(getMainLooper())
-                    val listener =
-                        object : Player.Listener {
-                            override fun onAvailableCommandsChanged(
-                                availableCommands: Commands
-                            ) {
-                                super.onAvailableCommandsChanged(availableCommands)
+            Column(modifier = Modifier.fillMaxSize()) {
+                EditorTopBar(
+                    onClose = { (context as Activity).finish() },
+                    onExport = { /* TODO */ }
+                )
 
-                                if (!playerViewSet && availableCommands.contains(Player.COMMAND_SET_VIDEO_SURFACE) && textureView != null) {
-                                    player.setVideoTextureView(textureView)
-                                    playerViewSet = true
-                                }
-
-                                if (availableCommands.contains(COMMAND_GET_CURRENT_MEDIA_ITEM)) {
-                                    viewModel.setFilterDurationEditorSliderPosition(0f..player.duration.toFloat())
-                                }
-                            }
-
-                            override fun onEvents(
-                                regularPlayer: Player,
-                                events: Player.Events
-                            ) {
-                                super.onEvents(player, events)
-
-                                if (player.duration > 0L) {
-                                    totalDuration = player.duration
-                                    fpm = (player.videoFormat?.frameRate ?: 0F) / 1000F
-                                    if (fpm > 0F) {
-                                        totalDurationFrames = (totalDuration * fpm).toLong()
-                                    }
-                                }
-
-                                isPlaying = player.isPlaying
-                                playbackState = player.playbackState
-
-                                if (isPlaying) {
-                                    if (!listenerRepeating) {
-                                        listenerRepeating = true
-                                        listenerHandler.post(
-                                            object : Runnable {
-                                                override fun run() {
-                                                    currentTime =
-                                                        player.currentPosition.coerceAtLeast(0L)
-                                                    currentTimeFrames =
-                                                        ((currentTime * fpm).toLong()).coerceAtMost(
-                                                            totalDurationFrames
-                                                        )
-                                                    if (listenerRepeating) {
-                                                        listenerHandler.postDelayed(
-                                                            this,
-                                                            REFRESH_RATE
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                } else {
-                                    listenerRepeating = false
-                                    currentTime =
-                                        player.currentPosition.coerceAtLeast(0L)
-                                    currentTimeFrames =
-                                        ((currentTime * fpm).toLong()).coerceAtMost(
-                                            totalDurationFrames
-                                        )
-                                }
-                            }
-                        }
-
-                    player.addListener(listener)
-
-                    onDispose {
-                        player.removeListener(listener)
-                        player.release()
-                    }
-                }
-
-                val androidViewModifier = if (useUiCascadingEffect) {
-                    Modifier.clickable { viewModel.setControlsVisible(!controlsVisible) }
-                } else {
-                    Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { viewModel.setControlsVisible(!controlsVisible) }
-                }
-
-                Box(modifier = Modifier.windowInsetsPadding(WindowInsets.systemBarsIgnoringVisibility)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
                     AndroidView(
-                        modifier = androidViewModifier,
+                        modifier = Modifier.fillMaxSize(),
                         factory = {
                             textureView = TextureView(context).apply {
                                 layoutParams =
@@ -303,171 +276,52 @@ fun VideoEditorScreen(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
+                            }.also {
+                                player.setVideoTextureView(it)
                             }
                             textureView!!
                         }
                     )
+                    CenterControls(
+                        modifier = Modifier.fillMaxWidth(),
+                        isPlaying = { player.isPlaying },
+                        onReplayClick = { player.seekBack() },
+                        onForwardClick = { player.seekForward() },
+                        onPauseToggle = {
+                            when {
+                                player.isPlaying -> {
+                                    player.pause()
+                                }
 
-                    val videoFormat = player.videoFormat
-                    if (videoFormat != null) {
-                        Box(
-                            modifier = Modifier
-                                .width(videoFormat.width.dp)
-                                .height(videoFormat.height.dp)
-                                .align(Alignment.Center)
-                                .windowInsetsPadding(WindowInsets.systemBarsIgnoringVisibility)
-                        ) {
-                            currentEditingEffect?.Editor()
-                        }
-                    }
+                                player.isPlaying.not() &&
+                                        player.playbackState == Player.STATE_ENDED -> {
+                                    player.seekTo(0)
+                                    player.playWhenReady = true
+                                }
+
+                                else -> {
+                                    player.play()
+                                }
+                            }
+                        },
+                        playbackState = { player.playbackState }
+                    )
                 }
 
-                PlayerControls(
-                    modifier = Modifier
-                        .fillMaxSize(),
-                    isVisible = { controlsVisible },
-                    isPlaying = { isPlaying },
-                    title = { getFileNameFromUri(context, uri.toUri()) },
-                    transformManager = transformManager,
-                    createDocument = createDocument,
-                    createProject = createProject,
-                    playbackState = { playbackState },
-                    onReplayClick = { player.seekBack() },
-                    onForwardClick = { player.seekForward() },
-                    onPauseToggle = {
-                        when {
-                            player.isPlaying -> {
-                                player.pause()
-                            }
-
-                            player.isPlaying.not() &&
-                                    playbackState == Player.STATE_ENDED -> {
-                                player.seekTo(0)
-                                player.playWhenReady = true
-                            }
-
-                            else -> {
-                                player.play()
-                            }
-                        }
-                        isPlaying = isPlaying.not()
-                    },
+                BottomControls(
+                    modifier = Modifier.fillMaxWidth(),
+                    uri = uri,
+                    player = player,
                     fpm = { fpm },
                     totalDuration = { totalDuration },
                     totalDurationFrames = { totalDurationFrames },
                     currentTime = { currentTime },
-                    currentTimeFrames = { currentTimeFrames }
-                ) { timeMs: Float ->
-                    if (filterDurationEditorEnabled) {
-                        var range: ClosedFloatingPointRange<Float>? = null
-                        if (startFilterSelected && timeMs < filterDurationEditorSliderPosition.endInclusive) {
-                            range = timeMs..filterDurationEditorSliderPosition.endInclusive
-                        } else if (!startFilterSelected && timeMs > filterDurationEditorSliderPosition.start) {
-                            range = filterDurationEditorSliderPosition.start..timeMs
-                        }
-                        if (range != null) {
-                            viewModel.setFilterDurationEditorSliderPosition(range)
-                            player.seekTo(timeMs.toLong())
-                        }
-                    } else {
-                        player.seekTo(timeMs.toLong())
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalAnimationApi::class)
-@Composable
-private fun PlayerControls(
-    modifier: Modifier = Modifier,
-    isVisible: () -> Boolean,
-    isPlaying: () -> Boolean,
-    title: () -> String,
-    transformManager: TransformManager,
-    createDocument: ActivityResultLauncher<String>,
-    createProject: ActivityResultLauncher<String>,
-    onReplayClick: () -> Unit,
-    onForwardClick: () -> Unit,
-    onPauseToggle: () -> Unit,
-    fpm: () -> Float,
-    totalDuration: () -> Long,
-    totalDurationFrames: () -> Long,
-    currentTime: () -> Long,
-    currentTimeFrames: () -> Long,
-    playbackState: () -> Int,
-    onSeekChanged: (timeMs: Float) -> Unit
-) {
-
-    val visible = remember(isVisible()) { isVisible() }
-
-    AnimatedVisibility(
-        modifier = modifier,
-        visible = visible,
-        enter = fadeIn(),
-        exit = fadeOut()
-    ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    brush = SolidColor(MaterialTheme.colorScheme.scrim),
-                    alpha = 0.5F
-                )
-        ) {
-            Box(
-                modifier = Modifier
-                    .safeContentPadding()
-                    .fillMaxSize()
-            ) {
-                TopControls(
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth(),
-                    title = title,
-                    transformManager = transformManager,
-                    createDocument = createDocument,
-                    createProject = createProject
-                )
-
-                CenterControls(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .fillMaxWidth(),
-                    isPlaying = isPlaying,
-                    onReplayClick = onReplayClick,
-                    onForwardClick = onForwardClick,
-                    onPauseToggle = onPauseToggle,
-                    playbackState = playbackState
-                )
-
-                BottomControls(
-                    modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .animateEnterExit(
-                            enter =
-                            slideInVertically(
-                                initialOffsetY = { fullHeight: Int ->
-                                    fullHeight
-                                }
-                            ),
-                            exit =
-                            slideOutVertically(
-                                targetOffsetY = { fullHeight: Int ->
-                                    fullHeight
-                                }
-                            )
-                        ),
-                    fpm = fpm,
-                    totalDuration = totalDuration,
-                    totalDurationFrames = totalDurationFrames,
-                    currentTime = currentTime,
-                    currentTimeFrames = currentTimeFrames,
-                    onSeekChanged = onSeekChanged,
+                    currentTimeFrames = { currentTimeFrames },
+                    onSeekChanged = { player.seekTo(it.toLong()) },
                     transformManager = transformManager
                 )
+
+                EditorBottomToolBar()
             }
         }
     }
@@ -553,6 +407,38 @@ private fun TopControls(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditorTopBar(
+    onClose: () -> Unit,
+    onExport: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        IconButton(onClick = onClose) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = stringResource(R.string.back)
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = { /* TODO: Open resolution selector */ }) {
+                Text("720P")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = onExport) {
+                Text(stringResource(R.string.export))
+            }
+        }
+    }
+}
+
 @Composable
 private fun CenterControls(
     modifier: Modifier = Modifier,
@@ -606,10 +492,46 @@ private fun CenterControls(
     }
 }
 
+@Composable
+private fun EditorBottomToolBar() {
+    val tools = listOf(
+        "Edit" to Icons.Default.Edit,
+        "Audio" to Icons.Default.Audiotrack,
+        "Text" to Icons.Default.TextFields,
+        "Effects" to Icons.Default.Texture,
+        "Overlay" to Icons.Default.Layers,
+        "Captions" to Icons.Default.ClosedCaption,
+        "Filters" to Icons.Default.Filter,
+        "Adjust" to Icons.Default.ContentCut, // Placeholder
+        "Stickers" to Icons.Default.Edit, // Placeholder
+        "Aspect Ratio" to Icons.Default.ContentCut, // Placeholder
+        "Background" to Icons.Default.Layers // Placeholder
+    )
+
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        items(tools) { (name, icon) ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { /* TODO */ }
+            ) {
+                Icon(imageVector = icon, contentDescription = name)
+                Text(text = name, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BottomControls(
     modifier: Modifier = Modifier,
+    uri: String,
+    player: ExoPlayer,
     fpm: () -> Float,
     totalDuration: () -> Long,
     totalDurationFrames: () -> Long,
@@ -640,11 +562,47 @@ private fun BottomControls(
     val filterDurationCallback by viewModel.filterDurationCallback.collectAsState()
     val filterDurationEditorSliderPosition by viewModel.filterDurationEditorSliderPosition.collectAsState()
 
+    val clips = remember {
+        listOf(
+            VideoClip(
+                sourceUri = uri.toUri(),
+                startTimeInSourceMs = 0,
+                endTimeInSourceMs = 10000,
+                timelinePositionMs = 0
+            ),
+            VideoClip(
+                sourceUri = uri.toUri(),
+                startTimeInSourceMs = 5000,
+                endTimeInSourceMs = 15000,
+                timelinePositionMs = 10000
+            )
+        )
+    }
+    var selectedClipId by remember { mutableStateOf(clips.first().id) }
+
     Column(
         modifier = modifier
+            .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 16.dp)
             .padding(bottom = 16.dp)
     ) {
+        ClipTimeline(clips = clips, selectedClipId = selectedClipId) { newClipId ->
+            selectedClipId = newClipId
+            val selectedClip = clips.first { it.id == newClipId }
+            val mediaItem = MediaItem.Builder()
+                .setUri(selectedClip.sourceUri)
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(selectedClip.startTimeInSourceMs)
+                        .setEndPositionMs(selectedClip.endTimeInSourceMs)
+                        .build()
+                )
+                .build()
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.play()
+        }
+
         Box(modifier = Modifier.fillMaxWidth()) {
             if (filterDurationEditorEnabled) {
                 RangeSlider(
@@ -739,11 +697,11 @@ private fun BottomControls(
             }
 
             if (filterDurationEditorEnabled || currentEditingEffect != null) {
+                val currentEditingEffectLocal = viewModel.currentEditingEffect.collectAsState().value
                 AcceptDeclineRow(
                     modifier = Modifier.weight(1f),
                     acceptDescription = stringResource(R.string.accept_filter),
                     acceptOnClick = {
-                        val currentEditingEffectLocal = currentEditingEffect
                         if (currentEditingEffectLocal != null) {
                             currentEditingEffectLocal.runCallback()
                             viewModel.setCurrentEditingEffect(null)
@@ -1162,14 +1120,10 @@ private fun ExportDialog(
                         // Log.e("open-video-editor", "Export exception: ", exception)
                     }
                 }
-            val onFFmpegError: () -> Unit = {
-                exportString = context.getString(R.string.ffmpeg_error)
-            }
             transformManager.export(
                 context,
                 exportSettings,
-                transformerListener,
-                onFFmpegError
+                transformerListener
             )
             isExporting = true
         }
@@ -1393,4 +1347,31 @@ fun ExportFailedAlertDialog(exceptionString: String, onDismissRequest: () -> Uni
             }
         }
     )
+}
+
+@Composable
+fun ClipTimeline(
+    clips: List<VideoClip>,
+    selectedClipId: String,
+    onClipSelected: (String) -> Unit
+) {
+    LazyRow(modifier = Modifier.fillMaxWidth()) {
+        items(clips) { clip ->
+            val isSelected = clip.id == selectedClipId
+            Box(
+                modifier = Modifier
+                    .height(50.dp)
+                    .width((clip.durationMs.toFloat() / 1000f).dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .border(
+                        width = 2.dp,
+                        color = if (isSelected)
+                            MaterialTheme.colorScheme.onSurface
+                        else
+                            Color.Transparent
+                    )
+                    .clickable { onClipSelected(clip.id) }
+            )
+        }
+    }
 }

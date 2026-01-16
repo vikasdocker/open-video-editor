@@ -44,7 +44,6 @@
     <string name="crop">Изрязване</string>
     <string name="lossless_cut">Изрязване без загуба</string>
     <string name="setting_info">Информация за настройка</string>
-    <string name="ffmpeg_error">FFmpeg грешка</string>
     <string name="default_text">По подразбиране</string>
     <string name="font">Шрифт</string>
     <string name="amoled_dark_theme">AMOLED тъмна тема</string>

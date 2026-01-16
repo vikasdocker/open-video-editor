@@ -7,9 +7,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import io.github.devhyper.openvideoeditor.misc.setImmersiveMode
 import io.github.devhyper.openvideoeditor.misc.setupSystemUi
 import io.github.devhyper.openvideoeditor.settings.SettingsDataStore
+import io.github.devhyper.openvideoeditor.ui.theme.OpenVideoEditorTheme
 import io.github.devhyper.openvideoeditor.videoeditor.VideoEditorActivity
 
 class MainActivity : ComponentActivity() {
@@ -36,8 +38,12 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            setImmersiveMode(false)
-            MainScreen(pickMedia, pickProject)
+            OpenVideoEditorTheme {
+                setImmersiveMode(false)
+                HomeScreen(onNewVideoClick = {
+                    pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                })
+            }
         }
     }
 

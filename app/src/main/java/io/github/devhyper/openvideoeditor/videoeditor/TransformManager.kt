@@ -31,9 +31,6 @@ import androidx.media3.transformer.TransformationRequest
 import androidx.media3.transformer.Transformer
 import androidx.media3.transformer.Transformer.PROGRESS_STATE_NOT_STARTED
 import androidx.media3.transformer.Transformer.PROGRESS_STATE_UNAVAILABLE
-import com.arthenica.ffmpegkit.FFmpegKit
-import com.arthenica.ffmpegkit.FFmpegKitConfig
-import com.arthenica.ffmpegkit.SessionState
 import io.github.devhyper.openvideoeditor.misc.PROJECT_FILE_EXT
 import io.github.devhyper.openvideoeditor.misc.getFileNameFromUri
 import kotlinx.collections.immutable.ImmutableList
@@ -405,51 +402,21 @@ class TransformManager {
         }
     }
 
-    private fun ffmpegLosslessCut(
-        context: Context,
-        trim: Trim,
-        outputPath: String,
-        audioFallback: Boolean,
-        onFFmpegError: () -> Unit
-    ) {
-        val ffmpegInputPath =
-            FFmpegKitConfig.getSafParameterForRead(context, projectData.uri.toUri())
-        val ffmpegOutputPath = FFmpegKitConfig.getSafParameterForWrite(context, outputPath.toUri())
-        val audioCodec = if (audioFallback) "aac" else "copy"
-        FFmpegKit.executeAsync(
-            "-i $ffmpegInputPath -ss ${trim.first}ms -to ${trim.second}ms -c:v copy -c:a $audioCodec $ffmpegOutputPath"
-        ) {
-            val fd = context.contentResolver.openAssetFileDescriptor(outputPath.toUri(), "r")
-            if (fd != null) {
-                val fileSize = fd.length
-                fd.close()
-                if (fileSize != 0L) {
-                    return@executeAsync
-                }
-            }
-            if (audioFallback) {
-                onFFmpegError()
-            } else {
-                ffmpegLosslessCut(context, trim, outputPath, true, onFFmpegError)
-            }
-        }
-    }
-
     @SuppressLint("Recycle")
     fun export(
         context: Context,
         exportSettings: ExportSettings,
-        transformerListener: Transformer.Listener,
-        onFFmpegError: () -> Unit
+        transformerListener: Transformer.Listener
     ) {
         // exportSettings.log()
         player.release()
         val outputPath = exportSettings.outputPath
         if (exportSettings.losslessCut) {
-            val trim = getMergedTrim()
-            if (trim != null) {
-                ffmpegLosslessCut(context, trim, outputPath, false, onFFmpegError)
-            }
+            val editedMediaItem = EditedMediaItem.Builder(trimmedMedia).build()
+            transformer = Transformer.Builder(context)
+                .addListener(transformerListener)
+                .build()
+            transformer!!.start(editedMediaItem, outputPath)
         } else {
             val fd =
                 context.contentResolver.openFileDescriptor(
@@ -490,27 +457,15 @@ class TransformManager {
     }
 
     fun cancel() {
-        FFmpegKit.cancel()
         transformer?.cancel()
     }
 
     fun getProgress(): Float {
-        val ffmpegSessions = FFmpegKit.listSessions()
-        return if (ffmpegSessions.isNotEmpty()) {
-            val sessionState = ffmpegSessions.last().state
-            return when (sessionState) {
-                SessionState.COMPLETED -> 1F
-                SessionState.RUNNING -> 0.5F
-                SessionState.CREATED -> 0F
-                else -> -1F
-            }
-        } else {
-            val progressHolder = ProgressHolder()
-            when (transformer?.getProgress(progressHolder)) {
-                PROGRESS_STATE_UNAVAILABLE -> -1F
-                PROGRESS_STATE_NOT_STARTED -> 1F
-                else -> progressHolder.progress.toFloat() / 100F
-            }
+        val progressHolder = ProgressHolder()
+        return when (transformer?.getProgress(progressHolder)) {
+            PROGRESS_STATE_UNAVAILABLE -> -1F
+            PROGRESS_STATE_NOT_STARTED -> 1F
+            else -> progressHolder.progress.toFloat() / 100F
         }
     }
 }
